@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "server.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "dashboard/web/**",
+      "use": "@vercel/static"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/live-data",
+      "dest": "server.py"
+    },
+    {
+      "src": "/",
+      "dest": "dashboard/web/index.html"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "dashboard/web/$1"
+    }
+  ]
+}
