@@ -97,10 +97,10 @@ async function fetchLiveDatasetState(region = "ALL") {
             if (region !== "ALL") {
                 const regionMapping = { 
                     "APAC": "APAC", 
-                    "Africa": "Africa", 
+                    "Africa": "EMEA", 
                     "Europe": "EU", 
                     "LATAM": "LATAM", 
-                    "USCA": "United States and Canada" 
+                    "USCA": "US" 
                 };
                 const targetString = regionMapping[region] || region;
                 rows = rows.filter(r => r['Market'] === targetString);
