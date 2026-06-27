@@ -81,6 +81,118 @@ function setupViewRouter() {
 // 2. LIVE PAYLOAD INGESTION (UPDATED TO RECEIVE REGION FILTERS)
 async function fetchLiveDatasetState(region = "ALL") {
     try {
+        const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        
+        if (!IS_LOCAL) {
+            // 🎯 READ DIRECTLY FROM THE CLEANED DATASET FILE
+            console.log("⚡ Vercel active: Computing from real cleaned_customer_dataset.csv");
+            const csvResponse = await fetch('../../outputs/cleaned_customer_dataset.csv');
+            if (!csvResponse.ok) throw new Error(`Dataset missing: ${csvResponse.status}`);
+            const csvText = await csvResponse.text();
+            
+            // Parse full dataset rows into objects
+            let rows = Papa.parse(csvText, { header: true, skipEmptyLines: true }).data;
+
+            // Apply your exact region mapping filter logic
+            if (region !== "ALL") {
+                const regionMapping = { 
+                    "APAC": "APAC", 
+                    "Africa": "Africa", 
+                    "Europe": "EU", 
+                    "LATAM": "LATAM", 
+                    "USCA": "United States and Canada" 
+                };
+                const targetString = regionMapping[region] || region;
+                rows = rows.filter(r => r['Market'] === targetString);
+            }
+
+            // Clean numbers and calculate your real dashboard aggregations
+            rows.forEach(r => {
+                r['Sales'] = parseFloat(String(r['Sales'] || '').replace(/[^\d.-]/g, '')) || 0;
+                r['Profit'] = parseFloat(String(r['Profit'] || '').replace(/[^\d.-]/g, '')) || 0;
+            });
+
+            const total_sales = rows.reduce((sum, r) => sum + r['Sales'], 0);
+            const total_orders = [...new Set(rows.map(r => r['Order ID']))].length;
+            const aov = total_orders > 0 ? total_sales / total_orders : 0;
+            const total_customers = [...new Set(rows.map(r => r['Customer ID']))].length;
+
+            const product_perf = {};
+            const market_prof = {};
+            const real_top_products = {};
+            const real_top_customers = {};
+            const segment_counts = { "Low Value": 0, "Medium Value": 0, "High Value": 0 };
+
+            rows.forEach(r => {
+                if (r['Category']) product_perf[r['Category']] = (product_perf[r['Category']] || 0) + r['Sales'];
+                if (r['Market']) market_prof[r['Market']] = (market_prof[r['Market']] || 0) + r['Profit'];
+                if (r['Product Name']) real_top_products[r['Product Name']] = (real_top_products[r['Product Name']] || 0) + r['Sales'];
+                if (r['Customer Name']) real_top_customers[r['Customer Name']] = (real_top_customers[r['Customer Name']] || 0) + r['Sales'];
+            });
+
+            // Calculate exact customer tiers matching your Python 50/44/6 rank logic
+            const custSpend = {};
+            rows.forEach(r => { if (r['Customer ID']) custSpend[r['Customer ID']] = (custSpend[r['Customer ID']] || 0) + r['Sales']; });
+            const spends = Object.values(custSpend).sort((a, b) => a - b);
+            rows.forEach(r => {
+                if (r['Customer ID']) {
+                    const pct = (spends.indexOf(custSpend[r['Customer ID']]) + 1) / spends.length;
+                    const tier = pct <= 0.50 ? 'Low Value' : (pct <= 0.94 ? 'Medium Value' : 'High Value');
+                    segment_counts[tier]++;
+                }
+            });
+
+            // Build map pointers matching your exact geo list schema
+            const coordinate_cache = {
+                "United States": [37.0902, -95.7129], "Canada": [56.1304, -106.3468], "Mexico": [23.6345, -102.5528],
+                "Brazil": [-14.2350, -51.9253], "Argentina": [-38.4161, -63.6167], "Chile": [-35.6751, -71.5430],
+                "Colombia": [4.5709, -74.2973], "Peru": [-9.1900, -75.0152], "United Kingdom": [55.3781, -3.4360],
+                "France": [46.2276, 2.2137], "Germany": [51.1657, 10.4515], "Italy": [41.8719, 12.5674],
+                "China": [35.8617, 104.1954], "India": [20.5937, 78.9629], "Japan": [36.2048, 138.2529],
+                "Australia": [-25.2744, 133.7751], "South Africa": [-30.5595, 22.9375], "Egypt": [26.8206, 30.8025]
+            };
+
+            const geo_map_summary = {};
+            rows.forEach(r => {
+                if (r['Country']) {
+                    if (!geo_map_summary[r['Country']]) geo_map_summary[r['Country']] = { sales: 0, profit: 0 };
+                    geo_map_summary[r['Country']].sales += r['Sales'];
+                    geo_map_summary[r['Country']].profit += r['Profit'];
+                }
+            });
+
+            const geo_map = Object.keys(geo_map_summary).map(country => {
+                const coords = coordinate_cache[country.trim()] || [0, 0];
+                return {
+                    country: country, sales: geo_map_summary[country].sales, profit: geo_map_summary[country].profit,
+                    lat: coords[0], lng: coords[1]
+                };
+            }).filter(item => item.lat !== 0);
+
+            // Populate the exact object structure your original charts require
+            livePayloadState = {
+                kpis: { total_sales, total_orders, aov, total_customers },
+                segments: segment_counts,
+                products: product_perf,
+                markets: market_prof,
+                real_top_products: Object.fromEntries(Object.entries(real_top_products).sort((a,b)=>b[1]-a[1]).slice(0,5)),
+                real_top_customers: Object.fromEntries(Object.entries(real_top_customers).sort((a,b)=>b[1]-a[1]).slice(0,5)),
+                geo_map: geo_map
+            };
+
+        } else {
+            // Local machine execution stays completely normal using server.py
+            const url = region === "ALL" ? '/api/live-data' : `/api/live-data?region=${encodeURIComponent(region)}`;
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`Network failure: ${response.status}`);
+            livePayloadState = await response.json();
+        }
+
+        // --- ⚠️ STOP HERE: YOUR ORIGINAL UNTOUCHED RENDERING LOGIC BEGINS ---
+        document.getElementById('kpi-sales').innerText = `$${livePayloadState.kpis.total_sales.toLocaleString(undefined, {minimumFractionDigits:2})}`;
+        document.getElementById('kpi-orders').innerText = livePayloadState.kpis.total_orders.toLocaleString();
+        document.getElementById('kpi-customers').innerText = livePayloadState.kpis.total_customers.toLocaleString();
+        document.getElementById('kpi-aov').innerText = `$${livePayloadState.kpis.aov.toLocaleString(undefined, {minimumFractionDigits:2})}`;
         // Construct endpoint query dynamically
         const url = region === "ALL" ? '/api/live-data' : `/api/live-data?region=${encodeURIComponent(region)}`;
         
