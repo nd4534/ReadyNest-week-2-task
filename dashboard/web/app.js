@@ -89,7 +89,7 @@ async function fetchLiveDatasetState(region = "ALL") {
         
         if (!IS_LOCAL_ENVIRONMENT) {
             // Vercel static asset mapping pointer
-            url = '/outputs/cleaned_customer_dataset.csv';
+            url = '../../outputs/cleaned_customer_dataset.csv';
             console.log("⚡ Vercel environment active: Fetching static operational records database directly.");
             
             // Short programmatic adapter to parse static CSV to expected json schema if running on Vercel
